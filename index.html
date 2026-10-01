@@ -3,35 +3,38 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Catalog</title>
+  <title>PDF + Photo Viewer</title>
   <style>
     html, body {
       margin: 0;
       height: 100%;
-      overflow: hidden;
-      background: #111;
       font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      overflow: hidden;
     }
 
-    #pdfView, #galleryView {
+    #pdfPane, #photoPane {
       position: absolute;
       inset: 0;
     }
 
-    #pdfFrame {
+    #pdfPane iframe {
       width: 100%;
       height: 100%;
       border: 0;
       background: #fff;
     }
 
-    #galleryView {
+    #photoPane {
       display: none;
       background: #111;
-      color: #fff;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
     }
 
-    #toolbar {
+    #topbar {
       position: absolute;
       top: 0;
       left: 0;
@@ -42,36 +45,35 @@
       justify-content: space-between;
       padding: 0 10px;
       box-sizing: border-box;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.65);
       z-index: 10;
     }
 
     #title {
       font-size: 14px;
-      max-width: calc(100vw - 140px);
-      white-space: nowrap;
       overflow: hidden;
+      white-space: nowrap;
       text-overflow: ellipsis;
+      max-width: calc(100vw - 120px);
     }
 
     .btn {
       border: 0;
-      border-radius: 8px;
       background: #333;
       color: #fff;
+      font-size: 18px;
       width: 40px;
       height: 36px;
+      border-radius: 8px;
       cursor: pointer;
-      font-size: 18px;
       margin-left: 6px;
     }
 
-    #viewer {
+    .btn:active { transform: scale(0.98); }
+
+    #viewerWrap {
       position: absolute;
-      top: 52px;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      inset: 52px 0 0 0;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -97,27 +99,32 @@
     #leftTap { left: 0; }
     #rightTap { right: 0; }
 
-    #loading, #errorBox {
+    #loading {
       position: absolute;
-      top: 52px;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      inset: 52px 0 0 0;
       display: none;
       align-items: center;
       justify-content: center;
-      text-align: center;
+      font-size: 18px;
+      background: #111;
+      z-index: 20;
+    }
+
+    #errorBox {
+      display: none;
       padding: 16px;
-      box-sizing: border-box;
+      max-width: 900px;
+      text-align: center;
+      line-height: 1.4;
     }
 
     #fullOverlay {
       position: fixed;
       inset: 0;
+      background: rgba(0,0,0,0.95);
       display: none;
       align-items: center;
       justify-content: center;
-      background: rgba(0,0,0,0.95);
       z-index: 999;
     }
 
@@ -127,7 +134,7 @@
       object-fit: contain;
     }
 
-    #closeFull {
+    #fullOverlay .closeFull {
       position: absolute;
       top: 12px;
       right: 12px;
@@ -143,216 +150,201 @@
   </style>
 </head>
 <body>
-  <div id="pdfView">
-    <iframe id="pdfFrame" title="Catalog PDF"></iframe>
+  <div id="pdfPane">
+    <iframe id="pdfFrame" title="PDF viewer"></iframe>
   </div>
 
-  <div id="galleryView">
-    <div id="toolbar">
-      <div id="title">Gallery</div>
+  <div id="photoPane">
+    <div id="topbar">
+      <div id="title">Photo viewer</div>
       <div>
-        <button class="btn" id="prevBtn" title="Previous">‹</button>
-        <button class="btn" id="nextBtn" title="Next">›</button>
-        <button class="btn" id="expandBtn" title="Full size">⤢</button>
+        <button class="btn" id="prevBtn" title="Previous photo">‹</button>
+        <button class="btn" id="nextBtn" title="Next photo">›</button>
+        <button class="btn" id="expandBtn" title="Open full size">⤢</button>
         <button class="btn" id="closeBtn" title="Close">X</button>
       </div>
     </div>
 
-    <div id="viewer">
-      <div id="leftTap"></div>
-      <div id="rightTap"></div>
-      <img id="photo" alt="Gallery image">
-      <div id="loading">Loading…</div>
-      <div id="errorBox"></div>
+    <div id="viewerWrap">
+      <div id="leftTap" aria-label="Previous photo"></div>
+      <div id="rightTap" aria-label="Next photo"></div>
+      <img id="photo" alt="Gallery photo" />
     </div>
+
+    <div id="loading">Loading photos…</div>
+    <div id="errorBox"></div>
   </div>
 
   <div id="fullOverlay">
-    <button id="closeFull">X</button>
-    <img id="fullImage" alt="Full size image">
+    <button class="closeFull" id="closeFullBtn">X</button>
+    <img id="fullImage" alt="Full size photo" />
   </div>
 
-  <script>
-    const pdfView = document.getElementById("pdfView");
-    const galleryView = document.getElementById("galleryView");
-    const pdfFrame = document.getElementById("pdfFrame");
+<script>
+(() => {
+  const OWNER = "cottageclock";
+  const REPO = "Catalog1";
+  const DEFAULT_PDF = "Catalog.pdf";
 
-    const titleEl = document.getElementById("title");
-    const photo = document.getElementById("photo");
-    const loading = document.getElementById("loading");
-    const errorBox = document.getElementById("errorBox");
-    const fullOverlay = document.getElementById("fullOverlay");
-    const fullImage = document.getElementById("fullImage");
+  const pdfPane = document.getElementById("pdfPane");
+  const photoPane = document.getElementById("photoPane");
+  const pdfFrame = document.getElementById("pdfFrame");
+  const photo = document.getElementById("photo");
+  const title = document.getElementById("title");
+  const loading = document.getElementById("loading");
+  const errorBox = document.getElementById("errorBox");
+  const fullOverlay = document.getElementById("fullOverlay");
+  const fullImage = document.getElementById("fullImage");
 
-    const prevBtn = document.getElementById("prevBtn");
-    const nextBtn = document.getElementById("nextBtn");
-    const expandBtn = document.getElementById("expandBtn");
-    const closeBtn = document.getElementById("closeBtn");
-    const closeFull = document.getElementById("closeFull");
-    const leftTap = document.getElementById("leftTap");
-    const rightTap = document.getElementById("rightTap");
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+  const expandBtn = document.getElementById("expandBtn");
+  const closeBtn = document.getElementById("closeBtn");
+  const leftTap = document.getElementById("leftTap");
+  const rightTap = document.getElementById("rightTap");
+  const closeFullBtn = document.getElementById("closeFullBtn");
 
-    const pdfUrl = "catalog.pdf";
-    let pdfLoaded = false;
+  let images = [];
+  let index = 0;
+  let currentFolder = "";
 
-    let images = [];
-    let currentIndex = 0;
-    let currentFolder = "";
+  function showPdf() {
+    photoPane.style.display = "none";
+    pdfPane.style.display = "block";
+    const url = new URL(DEFAULT_PDF, window.location.href).toString();
+    pdfFrame.src = url;
+  }
 
-    function showPdf() {
-      galleryView.style.display = "none";
-      pdfView.style.display = "block";
+  function showGallery() {
+    pdfPane.style.display = "none";
+    photoPane.style.display = "flex";
+  }
 
-      if (!pdfLoaded) {
-        pdfFrame.src = pdfUrl;
-        pdfLoaded = true;
-      }
+  function setLoading(on) {
+    loading.style.display = on ? "flex" : "none";
+  }
+
+  function showError(msg) {
+    errorBox.style.display = "block";
+    errorBox.textContent = msg;
+  }
+
+  function clearError() {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+
+  function extOk(name) {
+    return /\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(name);
+  }
+
+  async function loadFolder(folderPath) {
+    currentFolder = folderPath;
+    setLoading(true);
+    clearError();
+
+    const api = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURI(folderPath)}`;
+    const res = await fetch(api, { headers: { "Accept": "application/vnd.github+json" } });
+
+    if (!res.ok) {
+      throw new Error("Could not load folder.");
     }
 
-    function showGallery() {
-      pdfView.style.display = "none";
-      galleryView.style.display = "block";
+    const data = await res.json();
+    const files = Array.isArray(data) ? data : [];
+    images = files
+      .filter(item => item.type === "file" && extOk(item.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    if (!images.length) {
+      throw new Error("No image files found in that folder.");
     }
 
-    function setLoading(on) {
-      loading.style.display = on ? "flex" : "none";
+    index = 0;
+    renderImage();
+    setLoading(false);
+  }
+
+  function renderImage() {
+    const item = images[index];
+    if (!item) return;
+
+    title.textContent = `${index + 1} / ${images.length} — ${currentFolder.split("/").pop()}`;
+    photo.src = item.download_url;
+    photo.alt = item.name;
+  }
+
+  function next() {
+    if (!images.length) return;
+    index = (index + 1) % images.length;
+    renderImage();
+  }
+
+  function prev() {
+    if (!images.length) return;
+    index = (index - 1 + images.length) % images.length;
+    renderImage();
+  }
+
+  function openFull() {
+    const item = images[index];
+    if (!item) return;
+    fullImage.src = item.download_url;
+    fullOverlay.style.display = "flex";
+  }
+
+  function closeFull() {
+    fullOverlay.style.display = "none";
+    fullImage.src = "";
+  }
+
+  prevBtn.onclick = prev;
+  nextBtn.onclick = next;
+  leftTap.onclick = prev;
+  rightTap.onclick = next;
+  expandBtn.onclick = openFull;
+  closeBtn.onclick = () => {
+    const base = new URL(window.location.href);
+    base.search = "";
+    base.hash = "";
+    window.location.href = base.toString();
+  };
+  closeFullBtn.onclick = closeFull;
+  fullOverlay.onclick = (e) => {
+    if (e.target === fullOverlay) closeFull();
+  };
+
+  photo.onclick = openFull;
+
+  document.addEventListener("keydown", (e) => {
+    if (photoPane.style.display !== "flex") return;
+    if (fullOverlay.style.display === "flex") {
+      if (e.key === "Escape") closeFull();
+      return;
     }
-
-    function setError(msg) {
-      errorBox.style.display = "flex";
-      errorBox.textContent = msg;
+    if (e.key === "ArrowLeft") prev();
+    if (e.key === "ArrowRight") next();
+    if (e.key === "Escape") {
+      const base = new URL(window.location.href);
+      base.search = "";
+      base.hash = "";
+      window.location.href = base.toString();
     }
+  });
 
-    function clearError() {
-      errorBox.style.display = "none";
-      errorBox.textContent = "";
-    }
+  const params = new URLSearchParams(window.location.search);
+  const folder = params.get("folder");
 
-    function extOk(name) {
-      return /\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(name);
-    }
-
-    async function loadFolder(folderPath) {
-      currentFolder = folderPath;
-      setLoading(true);
-      clearError();
-
-      const api = `https://api.github.com/repos/cottageclock/Catalog1/contents/${encodeURI(folderPath)}`;
-      const res = await fetch(api, { headers: { Accept: "application/vnd.github+json" } });
-
-      if (!res.ok) throw new Error("Could not load folder.");
-
-      const data = await res.json();
-      images = (Array.isArray(data) ? data : [])
-        .filter(item => item.type === "file" && extOk(item.name))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      if (!images.length) throw new Error("No images found in that folder.");
-
-      currentIndex = 0;
-      renderImage();
+  if (folder) {
+    showGallery();
+    loadFolder(folder).catch(err => {
       setLoading(false);
-    }
-
-    function renderImage() {
-      const item = images[currentIndex];
-      if (!item) return;
-
-      titleEl.textContent = `${currentIndex + 1} / ${images.length} — ${currentFolder.split("/").pop()}`;
-      photo.src = item.download_url;
-      photo.alt = item.name;
-    }
-
-    function nextImage() {
-      if (!images.length) return;
-      currentIndex = (currentIndex + 1) % images.length;
-      renderImage();
-    }
-
-    function prevImage() {
-      if (!images.length) return;
-      currentIndex = (currentIndex - 1 + images.length) % images.length;
-      renderImage();
-    }
-
-    function openFull() {
-      const item = images[currentIndex];
-      if (!item) return;
-      fullImage.src = item.download_url;
-      fullOverlay.style.display = "flex";
-    }
-
-    function closeFullView() {
-      fullOverlay.style.display = "none";
-      fullImage.src = "";
-    }
-
-    function openGallery(folder) {
-      history.pushState({ view: "gallery", folder }, "", `?folder=${encodeURIComponent(folder)}`);
-      showGallery();
-      loadFolder(folder).catch(err => {
-        setLoading(false);
-        setError(err.message);
-      });
-    }
-
-    function closeGallery() {
-      history.back();
-    }
-
-    prevBtn.onclick = prevImage;
-    nextBtn.onclick = nextImage;
-    leftTap.onclick = prevImage;
-    rightTap.onclick = nextImage;
-    expandBtn.onclick = openFull;
-    closeBtn.onclick = closeGallery;
-    closeFull.onclick = closeFullView;
-
-    photo.onclick = openFull;
-    fullOverlay.onclick = (e) => {
-      if (e.target === fullOverlay) closeFullView();
-    };
-
-    document.addEventListener("keydown", (e) => {
-      if (galleryView.style.display !== "block") return;
-
-      if (fullOverlay.style.display === "flex") {
-        if (e.key === "Escape") closeFullView();
-        return;
-      }
-
-      if (e.key === "ArrowLeft") prevImage();
-      if (e.key === "ArrowRight") nextImage();
-      if (e.key === "Escape") closeGallery();
+      showError(err.message);
     });
-
-    window.addEventListener("popstate", () => {
-      const params = new URLSearchParams(window.location.search);
-      const folder = params.get("folder");
-
-      if (folder) {
-        showGallery();
-        loadFolder(folder).catch(err => {
-          setLoading(false);
-          setError(err.message);
-        });
-      } else {
-        showPdf();
-      }
-    });
-
-    const params = new URLSearchParams(window.location.search);
-    const folder = params.get("folder");
-
-    if (folder) {
-      showGallery();
-      loadFolder(folder).catch(err => {
-        setLoading(false);
-        setError(err.message);
-      });
-    } else {
-      showPdf();
-    }
-  </script>
+  } else {
+    showPdf();
+  }
+})();
+</script>
 </body>
 </html>
